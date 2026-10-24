@@ -1,0 +1,87 @@
+# Configuration Settings for RapidAid
+# ============================================================
+# RapidAid Configuration
+# ============================================================
+
+model:
+  detector: "yolo11x.pt"          # Upgrade: x-variant for max accuracy
+  pose: "yolo11x-pose.pt"         # Pose estimation
+  confidence_threshold: 0.45
+  iou_threshold: 0.50
+  target_classes: [2, 3, 5, 7]    # car, motorcycle, bus, truck (COCO IDs)
+
+tracker:
+  type: "botsort"                  # Options: botsort, bytetrack, strongsort
+  track_high_thresh: 0.5
+  track_low_thresh: 0.1
+  new_track_thresh: 0.6
+  track_buffer: 30
+
+signals:
+  # Velocity signal
+  velocity_spike_threshold: 0.45
+  velocity_window: 5               # frames to average
+
+  # Optical flow
+  flow_burst_threshold: 0.35
+  flow_window: 3
+
+  # Geometry (overlap)
+  geometry_overlap_threshold: 0.30
+
+  # Disappearance
+  disappearance_threshold: 0.50
+  disappearance_frames: 8
+
+  # Tracking stability
+  tracking_loss_threshold: 0.40
+
+state_machine:
+  suspicious_confidence: 0.35
+  confirmed_confidence: 0.60
+  aftermath_duration: 45           # frames to stay in AFTERMATH
+
+fusion:
+  # Geometry+Disappearance bonus
+  bonus_threshold_geometry: 0.30
+  bonus_threshold_disappearance: 0.50
+  bonus_value: 0.20
+  # Physics safeguard
+  physics_overwhelming_confidence: 0.70
+  physics_overwhelming_strong_signals: 4
+  physics_overwhelming_velocity: 0.50
+
+event:
+  clip_before_impact: 8           # seconds before impact
+  clip_after_impact: 12           # seconds after impact
+  storyboard_frames: 5
+
+severity:
+  # Victim status weights
+  fallen_weight: 1.0
+  near_edge_weight: 0.6
+  safe_weight: 0.2
+  # Score thresholds
+  low_max: 33
+  medium_max: 66
+  # High > 66
+
+dispatch:
+  hospital_search_radius_km: 10
+  nearest_hospitals: 3
+  response_timeout_minutes: 30
+
+semantic:
+  vlm_model: "qwen2.5-vl:7b"     # Ollama model name
+  groq_model: "llama-3.3-70b-versatile"
+  groq_max_tokens: 1024
+
+video:
+  sample_every_n_frames: 2        # Process every 2nd frame for speed
+  calibration_frames: 18          # Baseline using first 18 frames
+
+output:
+  clips_dir: "outputs/clips"
+  storyboards_dir: "outputs/storyboards"
+  reports_dir: "outputs/reports"
+  database_path: "database/fir.db"

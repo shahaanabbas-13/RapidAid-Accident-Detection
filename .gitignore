@@ -1,0 +1,14 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.env
+data/
+datasets/
+weights/
+runs/
+outputs/
+*.mp4
+*.avi
+*.mov
+*.mkv

@@ -1,1 +1,0 @@
-# RapidAid Configuration Package

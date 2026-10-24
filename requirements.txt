@@ -1,5 +1,12 @@
-ultralytics>=8.0.0
-opencv-python-headless>=4.8.0
-numpy>=1.24.0
-matplotlib>=3.7.0
-Pillow>=10.0.0
+# Phase 1 web and video inspection dependencies.
+# Install CUDA-enabled PyTorch separately; see README.md.
+ultralytics>=8.3,<9
+streamlit>=1.38,<2
+opencv-python>=4.10,<5
+numpy>=1.26,<3
+pandas>=2.2,<4
+plotly>=5.23,<7
+python-dotenv>=1.0,<2
+pyyaml>=6.0,<7
+Pillow>=10.4,<13
+pytest>=8.3,<10
