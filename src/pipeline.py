@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from statistics import median
 from typing import Callable
 
 import cv2
 import pandas as pd
-import torch
-from ultralytics import YOLO
 
 
 VEHICLE_CLASS_IDS = (2, 3, 5, 7)  # COCO: car, motorcycle, bus, truck
@@ -22,6 +21,7 @@ class VideoInfo:
     fps: float
     frame_count: int
     duration_seconds: float
+    frame_count_estimated: bool
 
     def to_dict(self) -> dict[str, int | float]:
         return asdict(self)
@@ -35,11 +35,41 @@ def inspect_video(video_path: str | Path) -> VideoInfo:
             raise ValueError("Could not open this video. Try MP4 (H.264) or AVI.")
         width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = float(capture.get(cv2.CAP_PROP_FPS))
-        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-        if width <= 0 or height <= 0 or frame_count <= 0 or fps <= 0:
+        reported_fps = float(capture.get(cv2.CAP_PROP_FPS))
+        reported_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        if width <= 0 or height <= 0 or reported_frames <= 0 or reported_fps <= 0:
             raise ValueError("Video metadata is incomplete or the codec is unsupported.")
-        return VideoInfo(width, height, fps, frame_count, frame_count / fps)
+
+        # Some WebM files expose the stream timebase as FPS (e.g. 1000) and
+        # report timestamp ticks as frame count. Estimate the real cadence from
+        # decoded frame timestamps when that disagrees with the header.
+        timestamp_deltas_ms: list[float] = []
+        previous_ms: float | None = None
+        decoded = 0
+        for _ in range(31):
+            ok, _frame = capture.read()
+            if not ok:
+                break
+            decoded += 1
+            current_ms = float(capture.get(cv2.CAP_PROP_POS_MSEC))
+            if previous_ms is not None and current_ms > previous_ms:
+                timestamp_deltas_ms.append(current_ms - previous_ms)
+            previous_ms = current_ms
+
+        sampled_fps = 1000.0 / median(timestamp_deltas_ms) if timestamp_deltas_ms else 0.0
+        fps = reported_fps
+        frame_count = reported_frames
+        estimated = False
+        if sampled_fps > 0 and (reported_fps > 240 or abs(reported_fps - sampled_fps) / sampled_fps > 0.10):
+            fps = sampled_fps
+            duration_seconds = reported_frames / reported_fps
+            frame_count = max(decoded, round(duration_seconds * fps))
+            estimated = True
+        else:
+            duration_seconds = reported_frames / reported_fps
+        if fps <= 0 or duration_seconds <= 0:
+            raise ValueError("Video timing metadata is invalid.")
+        return VideoInfo(width, height, fps, frame_count, duration_seconds, estimated)
     finally:
         capture.release()
 
@@ -63,6 +93,11 @@ def analyze_video(
     output_video = Path(output_video)
     output_video.parent.mkdir(parents=True, exist_ok=True)
     info = inspect_video(video_path)
+    # Delay heavy ML imports so metadata checks and the empty web app still work
+    # if a local CUDA installation needs troubleshooting.
+    import torch
+    from ultralytics import YOLO
+
     selected_device: str | int = (0 if torch.cuda.is_available() else "cpu") if device == "auto" else device
     model = YOLO(model_path)
     writer: cv2.VideoWriter | None = None
@@ -82,7 +117,8 @@ def analyze_video(
             verbose=False,
         )
         for sampled_index, result in enumerate(stream):
-            frame = result.plot()
+            # Keep review annotations readable on full-HD CCTV frames.
+            frame = result.plot(font_size=14, line_width=2)
             if writer is None:
                 height, width = frame.shape[:2]
                 fourcc = cv2.VideoWriter_fourcc(*"mp4v")

@@ -1,6 +1,6 @@
 # RapidAid
 
-RapidAid is a research prototype for CCTV video review and accident event detection. It is being rebuilt in phases. The current milestone is **Phase 1: video ingestion and an inspectable vehicle tracking baseline**.
+RapidAid is a research prototype for CCTV video review and accident event detection. It is being rebuilt in phases. **Phase 1 is complete; Phase 2 has started with track-derived motion measurements.**
 
 ## Design
 
@@ -14,8 +14,8 @@ The first prototype runs locally in a browser-backed web app. It uses a pretrain
 
 ## Phases
 
-1. **Video baseline:** upload CCTV clips, inspect metadata, detect/track vehicles, visualize tracks and signal traces, export analysis.
-2. **Physics signals:** implement and validate motion, optical-flow, geometry, and track-loss signals; add candidate-event timing and clip/storyboard extraction.
+1. **Video baseline (implemented):** upload CCTV clips, inspect metadata, detect/track vehicles, review annotated video, and export detections.
+2. **Physics signals (in progress):** track-derived image-plane speed and acceleration are implemented and viewable/exportable. Next: add and validate optical-flow, geometry, and track-loss signals; candidate-event timing and clip/storyboard extraction follow.
 3. **Evaluation and calibration:** create a manifest with video-level labels and event timestamps; report recall, precision, false alarms per hour, timing error, and runtime; train fusion only with enough independent videos.
 4. **Semantic review:** optional local/API narration as advisory evidence, with secrets kept outside source control.
 5. **Case workflow:** incident review, FIR-style records, maps and simulated notifications. No real emergency message is sent by the research prototype.

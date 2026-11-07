@@ -18,6 +18,7 @@ def test_inspect_video_reads_valid_clip(tmp_path):
     assert (info.width, info.height, info.frame_count) == (64, 48, 20)
     assert info.fps == pytest.approx(10.0)
     assert info.duration_seconds == pytest.approx(2.0)
+    assert info.frame_count_estimated is False
 
 
 def test_inspect_video_rejects_invalid_file(tmp_path):
