@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.engine.signal_extractor import extract_tracking_signals
+from src.engine.signal_extractor import extract_optical_flow_signals, extract_tracking_signals
 from src.pipeline import analyze_video, inspect_video
 
 
@@ -63,14 +63,26 @@ if uploaded:
                     input_path,
                     output_video,
                     sample_every=sample_every,
-                    progress=lambda value: progress.progress(value, text=f"Tracking vehicles… {value:.0%}"),
+                    progress=lambda value: progress.progress(
+                        0.75 * value, text=f"Tracking vehicles… {value:.0%}"
+                    ),
                 )
+            progress.progress(0.8, text="Summarizing tracked-vehicle motion…")
             signals = extract_tracking_signals(
                 detections,
                 fps=info.fps,
                 frame_count=info.frame_count,
                 sample_every=sample_every,
             )
+            progress.progress(0.82, text="Measuring optical flow on downscaled frames…")
+            flow_signals = extract_optical_flow_signals(
+                str(input_path),
+                fps=info.fps,
+                frame_count=info.frame_count,
+                sample_every=sample_every,
+            )
+            signals = signals.merge(flow_signals, on=["frame_index", "time_seconds"], how="left")
+            progress.progress(1.0, text="Vehicle and motion analysis complete.")
             st.session_state["phase1_result"] = {
                 "job_id": job_id,
                 "detections": detections,
@@ -100,31 +112,6 @@ if result:
         track_counts = detections.groupby("time_seconds")["track_id"].nunique().rename("vehicle tracks").reset_index()
         st.subheader("Tracked vehicle count")
         st.plotly_chart(px.line(track_counts, x="time_seconds", y="vehicle tracks", markers=True), use_container_width=True)
-        st.subheader("Image-plane motion measurements")
-        st.caption(
-            "Pixel speed and acceleration come from bounding-box center movement. "
-            "They depend on camera view and tracking quality; they are not road speeds or crash scores."
-        )
-        signals: pd.DataFrame = result["signals"]
-        motion = signals.dropna(subset=["median_pixel_speed_per_second"])
-        if motion.empty:
-            st.info("Not enough consecutive tracked observations to calculate motion yet.")
-        else:
-            st.plotly_chart(
-                px.line(
-                    motion,
-                    x="time_seconds",
-                    y=["median_pixel_speed_per_second", "p95_pixel_speed_per_second"],
-                    labels={"value": "Pixels per second", "variable": "Measurement"},
-                ),
-                use_container_width=True,
-            )
-            st.download_button(
-                "Download motion signals CSV",
-                signals.to_csv(index=False).encode("utf-8"),
-                file_name=f"rapidaid_motion_signals_{result['job_id']}.csv",
-                mime="text/csv",
-            )
         st.download_button(
             "Download detections CSV",
             detections.to_csv(index=False).encode("utf-8"),
@@ -133,3 +120,46 @@ if result:
         )
         with st.expander("Detection records"):
             st.dataframe(detections, use_container_width=True, hide_index=True)
+
+    signals: pd.DataFrame = result["signals"]
+    st.subheader("Image-plane motion measurements")
+    st.caption(
+        "Pixel speed and acceleration come from bounding-box center movement. "
+        "They depend on camera view and tracking quality; they are not road speeds or crash scores."
+    )
+    motion = signals.dropna(subset=["median_pixel_speed_per_second"])
+    if motion.empty:
+        st.info("Not enough consecutive tracked observations to calculate image-plane speed yet.")
+    else:
+        st.plotly_chart(
+            px.line(
+                motion,
+                x="time_seconds",
+                y=["median_pixel_speed_per_second", "p95_pixel_speed_per_second"],
+                labels={"value": "Pixels per second", "variable": "Measurement"},
+            ),
+            use_container_width=True,
+        )
+
+    flow = signals.dropna(subset=["mean_flow_px_per_sample"])
+    if not flow.empty:
+        st.subheader("Whole-frame optical flow")
+        st.caption(
+            "Apparent image movement between sampled frames, computed at up to 640 px wide. "
+            "Vehicle motion, background motion, and camera shake all contribute."
+        )
+        st.plotly_chart(
+            px.line(
+                flow,
+                x="time_seconds",
+                y=["mean_flow_px_per_sample", "p95_flow_px_per_sample"],
+                labels={"value": "Flow magnitude (pixels per sample)", "variable": "Measurement"},
+            ),
+            use_container_width=True,
+        )
+    st.download_button(
+        "Download motion and optical-flow signals CSV",
+        signals.to_csv(index=False).encode("utf-8"),
+        file_name=f"rapidaid_motion_signals_{result['job_id']}.csv",
+        mime="text/csv",
+    )

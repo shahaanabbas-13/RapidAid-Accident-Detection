@@ -15,7 +15,7 @@ The first prototype runs locally in a browser-backed web app. It uses a pretrain
 ## Phases
 
 1. **Video baseline (implemented):** upload CCTV clips, inspect metadata, detect/track vehicles, review annotated video, and export detections.
-2. **Physics signals (in progress):** track-derived image-plane speed and acceleration are implemented and viewable/exportable. Next: add and validate optical-flow, geometry, and track-loss signals; candidate-event timing and clip/storyboard extraction follow.
+2. **Physics signals (in progress):** track-derived image-plane speed and acceleration, plus whole-frame optical-flow magnitude, are implemented and viewable/exportable. Next: compare these traces across representative normal and incident footage, then add geometry and track-loss signals; candidate-event timing and clip/storyboard extraction follow.
 3. **Evaluation and calibration:** create a manifest with video-level labels and event timestamps; report recall, precision, false alarms per hour, timing error, and runtime; train fusion only with enough independent videos.
 4. **Semantic review:** optional local/API narration as advisory evidence, with secrets kept outside source control.
 5. **Case workflow:** incident review, FIR-style records, maps and simulated notifications. No real emergency message is sent by the research prototype.

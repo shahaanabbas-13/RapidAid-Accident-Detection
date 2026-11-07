@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import cv2
 
 
 SIGNAL_COLUMNS = [
@@ -19,6 +20,84 @@ SIGNAL_COLUMNS = [
     "median_pixel_acceleration_per_second2",
     "max_pixel_acceleration_per_second2",
 ]
+FLOW_COLUMNS = [
+    "frame_index",
+    "time_seconds",
+    "mean_flow_px_per_sample",
+    "p95_flow_px_per_sample",
+    "high_motion_pixel_fraction",
+]
+
+
+def extract_optical_flow_signals(
+    video_path: str,
+    *,
+    fps: float,
+    frame_count: int,
+    sample_every: int = 1,
+    max_width: int = 640,
+    motion_threshold_px: float = 1.5,
+) -> pd.DataFrame:
+    """Measure dense Farneback optical flow between sampled video frames.
+
+    Flow is computed on downscaled grayscale frames to limit CPU cost. Values
+    describe apparent whole-frame image motion; camera shake and background
+    movement contribute, so this is not a vehicle-only or crash score.
+    """
+    if fps <= 0 or frame_count < 0 or sample_every < 1 or max_width < 32:
+        raise ValueError("fps, sample_every, and max_width must be positive; frame_count cannot be negative")
+    if motion_threshold_px < 0:
+        raise ValueError("motion_threshold_px cannot be negative")
+
+    capture = cv2.VideoCapture(str(video_path))
+    if not capture.isOpened():
+        capture.release()
+        raise ValueError(f"Could not open video for optical-flow extraction: {video_path}")
+
+    measurements: list[dict[str, int | float]] = []
+    previous_gray: np.ndarray | None = None
+    frame_index = 0
+    try:
+        while frame_index < frame_count:
+            ok, frame = capture.read()
+            if not ok:
+                break
+            if frame_index % sample_every == 0:
+                height, width = frame.shape[:2]
+                scale = min(1.0, max_width / width)
+                resized = cv2.resize(
+                    frame,
+                    (max(1, round(width * scale)), max(1, round(height * scale))),
+                    interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR,
+                )
+                gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+                if previous_gray is not None:
+                    flow = cv2.calcOpticalFlowFarneback(
+                        previous_gray,
+                        gray,
+                        None,
+                        pyr_scale=0.5,
+                        levels=3,
+                        winsize=15,
+                        iterations=3,
+                        poly_n=5,
+                        poly_sigma=1.2,
+                        flags=0,
+                    )
+                    magnitude = cv2.magnitude(flow[..., 0], flow[..., 1])
+                    measurements.append({
+                        "frame_index": frame_index,
+                        "time_seconds": frame_index / fps,
+                        "mean_flow_px_per_sample": float(np.mean(magnitude)),
+                        "p95_flow_px_per_sample": float(np.percentile(magnitude, 95)),
+                        "high_motion_pixel_fraction": float(np.mean(magnitude >= motion_threshold_px)),
+                    })
+                previous_gray = gray
+            frame_index += 1
+    finally:
+        capture.release()
+
+    return pd.DataFrame(measurements, columns=FLOW_COLUMNS)
 
 
 def extract_tracking_signals(
