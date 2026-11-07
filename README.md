@@ -15,7 +15,7 @@ The first prototype runs locally in a browser-backed web app. It uses a pretrain
 ## Phases
 
 1. **Video baseline (implemented):** upload CCTV clips, inspect metadata, detect/track vehicles, review annotated video, and export detections.
-2. **Physics signals (in progress):** track-derived image-plane speed and acceleration, whole-frame optical-flow magnitude, bounding-box overlap, and one-step track-loss cues are implemented and viewable/exportable. Normal-traffic smoke checks are complete; compare all cues across labeled incident footage before adding candidate-event timing and clip/storyboard extraction.
+2. **Physics signals (in progress):** track-derived image-plane speed and acceleration, whole-frame optical-flow magnitude, bounding-box overlap, and one-step track-loss cues are implemented and viewable/exportable. An initial comparison is complete on one normal clip and one labeled incident preview; compare a broader, camera-diverse set before adding candidate-event timing and clip/storyboard extraction.
 3. **Evaluation and calibration:** create a manifest with video-level labels and event timestamps; report recall, precision, false alarms per hour, timing error, and runtime; train fusion only with enough independent videos.
 4. **Semantic review:** optional local/API narration as advisory evidence, with secrets kept outside source control.
 5. **Case workflow:** incident review, FIR-style records, maps and simulated notifications. No real emergency message is sent by the research prototype.
@@ -35,6 +35,15 @@ python -m pip install -r requirements.txt
 ```
 
 Then run `streamlit run dashboard/app.py`. The first model run downloads pretrained weights. Keep test videos in a local, untracked data folder; do not commit footage or model weights.
+
+To compare a labeled incident preview with normal traffic and save per-video signal CSVs plus a chart:
+
+```powershell
+python scripts/compare_signal_traces.py `
+  --normal outputs/phase1/highway_night_10s.mp4 `
+  --incident data/input/accident_tbone_preview.mp4 `
+  --event-start 0.84 --event-end 0.92
+```
 
 ## Data and training guidance
 
