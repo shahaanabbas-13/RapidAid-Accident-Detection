@@ -14,7 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.engine.signal_extractor import extract_optical_flow_signals, extract_tracking_signals
+from src.engine.signal_extractor import (
+    extract_geometry_track_loss_signals,
+    extract_optical_flow_signals,
+    extract_tracking_signals,
+)
 from src.pipeline import analyze_video, inspect_video
 
 
@@ -82,6 +86,15 @@ if uploaded:
                 sample_every=sample_every,
             )
             signals = signals.merge(flow_signals, on=["frame_index", "time_seconds"], how="left")
+            geometry_signals = extract_geometry_track_loss_signals(
+                detections,
+                fps=info.fps,
+                frame_count=info.frame_count,
+                frame_width=info.width,
+                frame_height=info.height,
+                sample_every=sample_every,
+            )
+            signals = signals.merge(geometry_signals, on=["frame_index", "time_seconds"], how="left")
             progress.progress(1.0, text="Vehicle and motion analysis complete.")
             st.session_state["phase1_result"] = {
                 "job_id": job_id,
@@ -154,6 +167,41 @@ if result:
                 x="time_seconds",
                 y=["mean_flow_px_per_sample", "p95_flow_px_per_sample"],
                 labels={"value": "Flow magnitude (pixels per sample)", "variable": "Measurement"},
+            ),
+            use_container_width=True,
+        )
+
+    geometry = signals.dropna(subset=["max_bbox_iou"])
+    if not geometry.empty:
+        st.subheader("Bounding-box geometry and track continuity")
+        st.caption(
+            "Box overlap is a 2D image measurement. Track losses compare adjacent sampled frames; "
+            "edge-adjacent losses are marked as possible exits. These are not collision labels."
+        )
+        st.plotly_chart(
+            px.line(
+                geometry,
+                x="time_seconds",
+                y="max_bbox_iou",
+                labels={"max_bbox_iou": "Maximum bounding-box IoU"},
+            ),
+            use_container_width=True,
+        )
+        st.plotly_chart(
+            px.line(
+                geometry,
+                x="time_seconds",
+                y="overlap_pair_count",
+                labels={"overlap_pair_count": "Overlapping vehicle-box pairs"},
+            ),
+            use_container_width=True,
+        )
+        st.plotly_chart(
+            px.line(
+                geometry,
+                x="time_seconds",
+                y=["one_step_track_loss_count", "likely_edge_exit_count"],
+                labels={"value": "Tracks per sample", "variable": "Measurement"},
             ),
             use_container_width=True,
         )

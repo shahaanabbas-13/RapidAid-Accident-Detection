@@ -3,7 +3,11 @@ import pytest
 import cv2
 import numpy as np
 
-from src.engine.signal_extractor import extract_optical_flow_signals, extract_tracking_signals
+from src.engine.signal_extractor import (
+    extract_geometry_track_loss_signals,
+    extract_optical_flow_signals,
+    extract_tracking_signals,
+)
 
 
 def _detection(frame_index: int, track_id: int, center_x: float) -> dict:
@@ -69,3 +73,34 @@ def test_extract_optical_flow_detects_motion_and_static_frames(tmp_path):
 def test_extract_optical_flow_rejects_invalid_timing():
     with pytest.raises(ValueError, match="fps, sample_every"):
         extract_optical_flow_signals("missing.mp4", fps=0, frame_count=10)
+
+
+def test_geometry_and_track_loss_signals_detect_overlap_and_edge_exit():
+    detections = pd.DataFrame([
+        {"frame_index": 0, "track_id": 1, "x1": 10, "y1": 20, "x2": 40, "y2": 50},
+        {"frame_index": 0, "track_id": 2, "x1": 30, "y1": 20, "x2": 60, "y2": 50},
+        {"frame_index": 0, "track_id": 3, "x1": 90, "y1": 20, "x2": 110, "y2": 50},
+        {"frame_index": 1, "track_id": 1, "x1": 10, "y1": 20, "x2": 40, "y2": 50},
+    ])
+
+    signals = extract_geometry_track_loss_signals(
+        detections,
+        fps=1,
+        frame_count=3,
+        frame_width=100,
+        frame_height=100,
+        border_margin_fraction=0.1,
+    )
+
+    assert signals.loc[0, "overlap_pair_count"] == 1
+    assert signals.loc[0, "max_bbox_iou"] == pytest.approx(0.2)
+    assert signals.loc[1, "one_step_track_loss_count"] == 2
+    assert signals.loc[1, "likely_edge_exit_count"] == 1
+    assert signals.loc[1, "one_step_track_loss_fraction"] == pytest.approx(2 / 3)
+
+
+def test_geometry_track_loss_rejects_invalid_dimensions():
+    with pytest.raises(ValueError, match="frame dimensions"):
+        extract_geometry_track_loss_signals(
+            pd.DataFrame(), fps=30, frame_count=10, frame_width=0, frame_height=100
+        )

@@ -27,6 +27,114 @@ FLOW_COLUMNS = [
     "p95_flow_px_per_sample",
     "high_motion_pixel_fraction",
 ]
+GEOMETRY_TRACK_COLUMNS = [
+    "frame_index",
+    "time_seconds",
+    "overlap_pair_count",
+    "max_bbox_iou",
+    "one_step_track_loss_count",
+    "one_step_track_loss_fraction",
+    "likely_edge_exit_count",
+]
+
+
+def extract_geometry_track_loss_signals(
+    detections: pd.DataFrame,
+    *,
+    fps: float,
+    frame_count: int,
+    frame_width: int,
+    frame_height: int,
+    sample_every: int = 1,
+    overlap_iou_threshold: float = 0.1,
+    border_margin_fraction: float = 0.05,
+) -> pd.DataFrame:
+    """Summarize bbox overlap and one-step losses of tracked IDs per sample.
+
+    A missing track is a continuity change, not proof that a vehicle vanished.
+    Border proximity marks possible exits. IoU measures image-box overlap only;
+    neither signal establishes a physical collision.
+    """
+    if fps <= 0 or frame_count < 0 or sample_every < 1 or frame_width <= 0 or frame_height <= 0:
+        raise ValueError("fps, sample_every, and frame dimensions must be positive; frame_count cannot be negative")
+    if not 0 <= overlap_iou_threshold <= 1:
+        raise ValueError("overlap_iou_threshold must be between 0 and 1")
+    if not 0 <= border_margin_fraction < 0.5:
+        raise ValueError("border_margin_fraction must be between 0 and 0.5")
+
+    frame_indices = np.arange(0, frame_count, sample_every, dtype=int)
+    result = pd.DataFrame({"frame_index": frame_indices})
+    result["time_seconds"] = result["frame_index"] / fps
+    for column in GEOMETRY_TRACK_COLUMNS[2:]:
+        result[column] = (
+            0.0
+            if column in {"max_bbox_iou", "one_step_track_loss_fraction"}
+            else 0
+        )
+    result = result.set_index("frame_index")
+    required = {"frame_index", "track_id", "x1", "y1", "x2", "y2"}
+    if not len(result) or detections.empty or not required.issubset(detections.columns):
+        return result.reset_index()[GEOMETRY_TRACK_COLUMNS]
+
+    rows = detections.loc[detections["track_id"].notna()].copy()
+    rows = rows.drop_duplicates(["frame_index", "track_id"], keep="last")
+    grouped = {int(index): group for index, group in rows.groupby("frame_index")}
+    margin_x = frame_width * border_margin_fraction
+    margin_y = frame_height * border_margin_fraction
+    previous_ids: set[object] = set()
+    previous_boxes: dict[object, tuple[float, float, float, float]] = {}
+
+    for frame_index in frame_indices:
+        current = grouped.get(int(frame_index))
+        current_ids: set[object] = set()
+        current_boxes: dict[object, tuple[float, float, float, float]] = {}
+        if current is not None:
+            for row in current.itertuples(index=False):
+                track_id = row.track_id
+                box = (float(row.x1), float(row.y1), float(row.x2), float(row.y2))
+                current_ids.add(track_id)
+                current_boxes[track_id] = box
+
+        if len(current_boxes) > 1:
+            boxes = np.asarray(list(current_boxes.values()), dtype=float)
+            overlaps: list[float] = []
+            for first in range(len(boxes) - 1):
+                x1 = np.maximum(boxes[first, 0], boxes[first + 1 :, 0])
+                y1 = np.maximum(boxes[first, 1], boxes[first + 1 :, 1])
+                x2 = np.minimum(boxes[first, 2], boxes[first + 1 :, 2])
+                y2 = np.minimum(boxes[first, 3], boxes[first + 1 :, 3])
+                intersection = np.maximum(0, x2 - x1) * np.maximum(0, y2 - y1)
+                area_first = max(0, boxes[first, 2] - boxes[first, 0]) * max(0, boxes[first, 3] - boxes[first, 1])
+                area_other = np.maximum(0, boxes[first + 1 :, 2] - boxes[first + 1 :, 0]) * np.maximum(
+                    0, boxes[first + 1 :, 3] - boxes[first + 1 :, 1]
+                )
+                union = area_first + area_other - intersection
+                ious = np.divide(intersection, union, out=np.zeros_like(intersection), where=union > 0)
+                overlaps.extend(ious.tolist())
+            if overlaps:
+                result.loc[frame_index, "overlap_pair_count"] = int(
+                    sum(value >= overlap_iou_threshold for value in overlaps)
+                )
+                result.loc[frame_index, "max_bbox_iou"] = float(max(overlaps))
+
+        lost_ids = previous_ids - current_ids
+        result.loc[frame_index, "one_step_track_loss_count"] = len(lost_ids)
+        if previous_ids:
+            result.loc[frame_index, "one_step_track_loss_fraction"] = len(lost_ids) / len(previous_ids)
+        result.loc[frame_index, "likely_edge_exit_count"] = sum(
+            1
+            for track_id in lost_ids
+            if (
+                previous_boxes[track_id][0] <= margin_x
+                or previous_boxes[track_id][1] <= margin_y
+                or previous_boxes[track_id][2] >= frame_width - margin_x
+                or previous_boxes[track_id][3] >= frame_height - margin_y
+            )
+        )
+        previous_ids = current_ids
+        previous_boxes = current_boxes
+
+    return result.reset_index()[GEOMETRY_TRACK_COLUMNS]
 
 
 def extract_optical_flow_signals(
